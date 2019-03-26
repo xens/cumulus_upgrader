@@ -1,0 +1,7 @@
+---
+
+- name: ensure that the topology is valid on all switches
+  script: files/test_topology.py
+  delegate_to: "{{item}}"
+  delegate_facts: True
+  with_items: "{{groups['oobswitches']}}"

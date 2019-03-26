@@ -1,0 +1,20 @@
+---
+
+- name: ensure that we're receiving BGP routes from all peers on all switches
+  script: files/frr_show_bgp_peers.py
+  become: true
+  delegate_to: "{{item}}"
+  delegate_facts: True
+  with_items: "{{groups['switches']}}"
+
+- name: ensure that the topology is valid on all switches
+  script: files/test_topology.py
+  delegate_to: "{{item}}"
+  delegate_facts: True
+  with_items: "{{groups['switches']}}"
+
+- name: ensure that clag is consistent on all switches
+  script: files/clagd_consitency.py
+  delegate_to: "{{item}}"
+  delegate_facts: True
+  with_items: "{{groups['l2switches']}}"

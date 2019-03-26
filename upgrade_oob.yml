@@ -1,0 +1,151 @@
+---
+
+- hosts: oobswitches
+  user: cumulus
+  serial: 1
+
+  tasks:
+
+  #########
+  #### check if the switch needs to be upgraded or not
+
+  - name: Register the OS version
+    shell: grep "VERSION_ID=" /etc/os-release | cut -d "=" -f 2
+    register: current_version
+    tags: register
+
+  - name: Check if switch needs to be upgraded or not
+    block:
+      - debug:
+         msg: "Switch needs to be upgraded from {{ current_version.stdout }} to {{ target_version }}"
+
+
+      #########
+      #### pre-flight checks applied to all the oob switches
+
+      # Extecute the consistency checks on all the switches
+      - include_tasks: oob_consistency.yml
+
+
+      #########
+      #### Stop critical services
+
+      # - pause:
+      #     prompt: "Press any key to start the upgrade"
+
+      # - name: TODO
+      #   script: TODO
+      #   become: true
+
+      #########
+      #### Start update
+
+      - name: Register cumulus-archive-keyring version
+        shell: apt-cache policy cumulus-archive-keyring | grep "Installed:" | awk '{ print $2 }'
+        register: cl_keyring_version
+        tags: register
+
+      - name: Check if we need to manually upgrade the archive-keyring
+        block:
+          - debug:
+             msg: "Switch needs to be upgraded from {{ current_version.stdout }} to {{ target_version }}"
+
+          - name: Download cumulus-archive-keyring from upstream repo
+            get_url:
+              url:  http://repo3.cumulusnetworks.com/repo/pool/cumulus/c/cumulus-archive-keyring/cumulus-archive-keyring_4-cl3u5_all.deb  
+              dest: /tmp/
+              mode: 0440
+
+          - name: Manually install the latest version of the cumulus-archive-keyring
+            become: True
+            shell: dpkg -i /tmp/cumulus-archive-keyring_4-cl3u5_all.deb
+
+        when: cl_keyring_version.stdout is version('4', '<')
+
+      - name: Update package list
+        become: true
+        apt:
+          update_cache: yes
+          autoremove: yes
+          allow_unauthenticated: yes
+
+      - name: Upgrade system async
+        become: true
+        apt:
+          update_cache: yes
+          autoremove: yes
+          upgrade: dist
+          allow_unauthenticated: yes
+          dpkg_options: 'force-confold'
+        async: 3600
+        poll: 0
+        register: apt_sleeper
+
+      - name: apt - check async task
+        become: true
+        async_status:
+          jid: "{{ apt_sleeper.ansible_job_id }}"
+        register: job_result
+        until: job_result.finished
+        retries: 60
+        delay: 60
+
+      #########
+      ### Reboot system
+
+      #- name: reboot system
+      #  shell: sleep 2 && shutdown -r now "Ansible package updates triggered"
+      #  async: 1
+      #  poll: 0
+      #  become: true
+      #  ignore_errors: true
+
+      #- pause:
+      #    seconds: 5
+
+      #- name: waiting for switch to come back
+      #  become: false
+      #  wait_for_connection:
+      #    timeout: 300
+
+
+      #########
+      ### Ensure that system rebooted properly
+
+      #- name: get system uptime
+      #  command: awk -F . '{print $1}' /proc/uptime
+      #  register: uptime
+      #  become: false
+
+      #- name: verify a reboot was actually initiated
+      #  # machine should have started after it has been rebooted
+      #  fail:
+      #    msg: "Uptime is too high for reboot to have worked: {{ uptime.stdout }}s"
+      #  when: uptime.stdout|int > 300
+
+
+      #########
+      ### post-flight checks
+
+      - name: POST register the OS version after upgrading
+        shell: grep "VERSION_ID=" /etc/os-release | cut -d "\"" -f 2
+        register: os_version_after
+        tags: register
+
+      - name: POST system version before and after upgrading
+        debug:
+          msg: "before: {{ current_version.stdout }}, after: {{ os_version_after.stdout }}"
+
+      # Wait a bit for everything to converge
+      - pause:
+          seconds: 40
+
+      # Execute the consistency checks on all the switches
+      - include_tasks: oob_consistency.yml
+
+    when: current_version.stdout is version(target_version, '<')
+
+  - name: Check if switch needs to be upgraded or not
+    debug:
+      msg: "Switch is already running version {{ current_version.stdout }}"
+    when: current_version.stdout is version(target_version, '=')

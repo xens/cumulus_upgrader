@@ -1,0 +1,13 @@
+[l2switches]
+leaf-dc1r02n01 ansible_host=10.1
+leaf-dc1r02n02 ansible_host=10.1
+leaf-dc1r03n01 ansible_host=10.1
+leaf-dc1r03n02 ansible_host=10.1
+
+[l3switches]
+spine-dc1r01n01 ansible_host=10.1
+spine-dc1r01n02 ansible_host=10.1
+
+[switches:children]
+l2switches
+l3switches
